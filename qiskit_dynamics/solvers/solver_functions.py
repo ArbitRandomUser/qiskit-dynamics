@@ -369,7 +369,7 @@ def solve_lmde(
 
     return results
 
-
+generator_cache = {}
 def setup_generator_model_rhs_y0_in_frame_basis(
     generator_model: BaseGeneratorModel, y0: Array
 ) -> Tuple[Callable, Callable, Array]:
@@ -387,32 +387,35 @@ def setup_generator_model_rhs_y0_in_frame_basis(
         in frame basis, and boolean indicating whether model was already specified in frame basis.
     """
 
-    model_in_frame_basis = generator_model.in_frame_basis
+    if generator_model in generator_cache:
+        return generator_cache[generator_model]
+    else:
+        model_in_frame_basis = generator_model.in_frame_basis
+        # if model not specified in frame basis, transform initial state into frame basis
+        if not model_in_frame_basis:
+            if (
+                isinstance(generator_model, LindbladModel)
+                and "vectorized" in generator_model.evaluation_mode
+            ):
+                if generator_model.rotating_frame.frame_basis is not None:
+                    y0 = generator_model.rotating_frame.vectorized_frame_basis_adjoint @ y0
+            elif isinstance(generator_model, LindbladModel):
+                y0 = generator_model.rotating_frame.operator_into_frame_basis(y0)
+            elif isinstance(generator_model, GeneratorModel):
+                y0 = generator_model.rotating_frame.state_into_frame_basis(y0)
 
-    # if model not specified in frame basis, transform initial state into frame basis
-    if not model_in_frame_basis:
-        if (
-            isinstance(generator_model, LindbladModel)
-            and "vectorized" in generator_model.evaluation_mode
-        ):
-            if generator_model.rotating_frame.frame_basis is not None:
-                y0 = generator_model.rotating_frame.vectorized_frame_basis_adjoint @ y0
-        elif isinstance(generator_model, LindbladModel):
-            y0 = generator_model.rotating_frame.operator_into_frame_basis(y0)
-        elif isinstance(generator_model, GeneratorModel):
-            y0 = generator_model.rotating_frame.state_into_frame_basis(y0)
+        # set model to operator in frame basis
+        generator_model.in_frame_basis = True
 
-    # set model to operator in frame basis
-    generator_model.in_frame_basis = True
+        # define rhs functions in frame basis
+        def generator(t):
+            return generator_model(t)
 
-    # define rhs functions in frame basis
-    def generator(t):
-        return generator_model(t)
-
-    def rhs(t, y):
-        return generator_model(t, y)
-
-    return generator, rhs, y0, model_in_frame_basis
+        def rhs(t, y):
+            return generator_model(t, y)
+        generator_cache[generator_model] = (generator, rhs, y0, model_in_frame_basis)
+        return generator_cache[generator_model]
+        #return generator, rhs, y0, model_in_frame_basis
 
 
 def results_y_out_of_frame_basis(

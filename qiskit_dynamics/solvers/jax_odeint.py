@@ -33,6 +33,7 @@ try:
 except ImportError:
     pass
 
+lambda_map = {} 
 
 @requires_backend("jax")
 def jax_odeint(
@@ -54,15 +55,24 @@ def jax_odeint(
     Returns:
         OdeResult: Results object.
     """
+    global lambda_map 
 
     t_list = merge_t_args_jax(t_span, t_eval)
 
     # determine direction of integration
     t_direction = np.sign(Array(t_list[-1] - t_list[0], backend="jax", dtype=complex))
-    rhs = wrap(rhs)
+    print("rhs id ",id(rhs))
+    if rhs in lambda_map:
+        rhs_lambda = lambda_map[rhs]
+    else:
+        wrhs = wrap(rhs)
+        lambda_map[rhs] = (lambda y, t: wrhs(np.real(t_direction * t), y) * t_direction)
+        rhs_lambda = lambda_map[rhs]
+    print("rhs lambda id", id(rhs_lambda))
 
     results = odeint(
-        lambda y, t: rhs(np.real(t_direction * t), y) * t_direction,
+        #lambda y, t: rhs(np.real(t_direction * t), y) * t_direction,
+        rhs_lambda,
         y0=Array(y0, dtype=complex),
         t=np.real(t_direction) * Array(t_list),
         **kwargs,
